@@ -65,9 +65,9 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "your-github-username",
-      "repo": "restify-printer",
-      "private": false
+      "owner": "mohamedsahal",
+      "repo": "Restify-Printer",
+      "private": true
     }
   }
 }

@@ -31,3 +31,7 @@ Thumbs.db
 # Temp files
 *.tmp
 temp/
+
+# GitHub Token (NEVER COMMIT)
+setup-github-token.bat
+setup-github-token.sh
