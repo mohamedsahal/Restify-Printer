@@ -1,6 +1,6 @@
 {
   "name": "restify-printer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Restify Desktop Printer Application",
   "main": "main.js",
   "scripts": {
