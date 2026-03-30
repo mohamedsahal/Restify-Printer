@@ -7,7 +7,7 @@ const testConnectionBtn = document.getElementById('test-connection');
 const refreshPrintersBtn = document.getElementById('refresh-printers');
 const saveStartPrintingBtn = document.getElementById('save-start-printing');
 const autostartToggle = document.getElementById('autostart-toggle');
-const checkUpdatesToggle = document.getElementById('check-updates-toggle');
+const checkUpdatesBtn = document.getElementById('check-updates-btn');
 const connectionStatus = document.getElementById('connection-status');
 const printerMappingsContainer = document.getElementById('printer-mappings');
 const autostartStatus = document.getElementById('autostart-status');
@@ -33,9 +33,8 @@ async function init() {
     apiKeyInput.value = config.apiKey || '';
     appVersionSpan.textContent = version;
     
-    // Update toggles
+    // Update autostart toggle
     updateToggleButton(autostartToggle, config.autoStart);
-    updateToggleButton(checkUpdatesToggle, config.checkUpdates);
     
     // Load printer mappings
     if (config.printerMappings && config.printerMappings.length > 0) {
@@ -59,28 +58,16 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
-// Update toggle button
+// Update toggle button (only for autostart now)
 function updateToggleButton(button, isActive) {
-    const isAutostart = button.id === 'autostart-toggle';
-    
     if (isActive) {
-        if (isAutostart) {
-            // When autostart is ON - show RED with power_off icon
-            button.className = 'btn-pill btn-pill-red';
-            button.innerHTML = '<i class="material-icons">power_off</i><span>Disable Autostart</span>';
-        } else {
-            button.className = 'btn-pill btn-pill-blue active';
-            button.innerHTML = '<i class="material-icons">system_update</i><span>Check Updates</span>';
-        }
+        // When autostart is ON - show RED with power_off icon
+        button.className = 'btn-pill btn-pill-red';
+        button.innerHTML = '<i class="material-icons">power_off</i><span>Disable Autostart</span>';
     } else {
-        if (isAutostart) {
-            // When autostart is OFF - show GREEN with power_settings_new icon
-            button.className = 'btn-pill btn-pill-green';
-            button.innerHTML = '<i class="material-icons">power_settings_new</i><span>Enable Autostart</span>';
-        } else {
-            button.className = 'btn-pill btn-pill-blue';
-            button.innerHTML = '<i class="material-icons">system_update</i><span>Check Updates</span>';
-        }
+        // When autostart is OFF - show GREEN with power_settings_new icon
+        button.className = 'btn-pill btn-pill-green';
+        button.innerHTML = '<i class="material-icons">power_settings_new</i><span>Enable Autostart</span>';
     }
 }
 
@@ -303,27 +290,23 @@ autostartToggle.addEventListener('click', async () => {
     showToast(`Autostart ${config.autoStart ? 'enabled' : 'disabled'}`, 'success');
 });
 
-checkUpdatesToggle.addEventListener('click', async () => {
-    config.checkUpdates = !config.checkUpdates;
-    updateToggleButton(checkUpdatesToggle, config.checkUpdates);
-    await ipcRenderer.invoke('save-config', config);
-    showToast(`Update checks ${config.checkUpdates ? 'enabled' : 'disabled'}`, 'success');
-    
-    // If enabled, check for updates immediately
-    if (config.checkUpdates) {
-        checkForUpdates();
-    }
+// Check Updates button - directly check for updates
+checkUpdatesBtn.addEventListener('click', () => {
+    checkForUpdates();
 });
 
 // Check for updates function
 async function checkForUpdates() {
-    showToast('Checking for updates...', 'info');
+    // Disable button and show loading
+    checkUpdatesBtn.disabled = true;
+    checkUpdatesBtn.innerHTML = '<i class="material-icons">hourglass_empty</i><span>Checking...</span>';
     
     try {
         const result = await ipcRenderer.invoke('check-for-updates');
         
         if (result.success) {
             if (result.updateAvailable) {
+                // Show update available dialog
                 const response = confirm(
                     `Update Available!\n\n` +
                     `Current version: v${result.currentVersion}\n` +
@@ -333,6 +316,8 @@ async function checkForUpdates() {
                 
                 if (response) {
                     downloadUpdate();
+                } else {
+                    showToast('Update cancelled', 'info');
                 }
             } else {
                 showToast(result.message, 'success');
@@ -341,7 +326,11 @@ async function checkForUpdates() {
             showToast(result.message, 'error');
         }
     } catch (error) {
-        showToast('Failed to check for updates', 'error');
+        showToast('Failed to check for updates: ' + error.message, 'error');
+    } finally {
+        // Re-enable button
+        checkUpdatesBtn.disabled = false;
+        checkUpdatesBtn.innerHTML = '<i class="material-icons">system_update</i><span>Check Updates</span>';
     }
 }
 

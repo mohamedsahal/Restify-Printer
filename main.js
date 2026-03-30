@@ -19,6 +19,18 @@ let apiService = null;
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = true;
 
+// Set GitHub token for private repo access
+if (process.env.GH_TOKEN) {
+  autoUpdater.requestHeaders = {
+    'Authorization': `token ${process.env.GH_TOKEN}`
+  };
+}
+
+// For development, allow any certificate
+if (process.env.NODE_ENV === 'development') {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 // Auto-launch configuration
 const autoLauncher = new AutoLaunch({
   name: 'Restify Printer',
@@ -221,14 +233,6 @@ ipcMain.handle('get-app-version', async () => {
 // Auto-updater IPC handlers
 ipcMain.handle('check-for-updates', async () => {
   try {
-    const checkUpdates = store.get('checkUpdates', true);
-    if (!checkUpdates) {
-      return { 
-        success: false, 
-        message: 'Update checking is disabled' 
-      };
-    }
-
     const result = await autoUpdater.checkForUpdates();
     
     if (result && result.updateInfo) {
@@ -345,15 +349,12 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
 
-  // Check for updates on startup if enabled
-  const checkUpdates = store.get('checkUpdates', true);
-  if (checkUpdates) {
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(err => {
-        console.log('Auto-update check failed:', err);
-      });
-    }, 3000);
-  }
+  // Check for updates on startup (always enabled now)
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(err => {
+      console.log('Auto-update check failed:', err);
+    });
+  }, 3000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

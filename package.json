@@ -67,7 +67,7 @@
       "provider": "github",
       "owner": "mohamedsahal",
       "repo": "Restify-Printer",
-      "private": true
+      "private": false
     }
   }
 }
