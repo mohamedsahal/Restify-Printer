@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restify Printer</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <img src="assets/Restify.png" alt="Restify" class="logo-icon">
+                <h1>Printer Configuration</h1>
+            </div>
+            <div class="header-right">
+                <span class="version">v<span id="app-version">1.0.0</span></span>
+                <button id="autostart-toggle" class="btn-pill btn-pill-green">
+                    <i class="material-icons">power_settings_new</i>
+                    <span>Enable Autostart</span>
+                </button>
+                <button id="check-updates-toggle" class="btn-pill btn-pill-blue active">
+                    <i class="material-icons">system_update</i>
+                    <span>Check Updates</span>
+                </button>
+                <span id="connection-status" class="status-badge disconnected">Disconnected</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Connection Section -->
+            <section class="section connection-section">
+                <div class="section-header">
+                    <h2><span class="icon">📡</span> Connection</h2>
+                </div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="domain-url">Domain URL</label>
+                            <input type="text" id="domain-url" placeholder="https://your-domain.com" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label for="api-key">API Key</label>
+                            <input type="password" id="api-key" placeholder="Enter your API key" class="form-input">
+                        </div>
+                    </div>
+                    <button id="test-connection" class="btn btn-primary btn-block">
+                        <i class="material-icons" style="font-size: 20px;">wifi</i>
+                        <span>Test Connection</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Printer Setup Section -->
+            <section class="section printer-setup-section">
+                <div class="section-header">
+                    <h2><span class="icon">🖨️</span> Printer Setup</h2>
+                    <button id="refresh-printers" class="btn btn-secondary">
+                        <i class="material-icons" style="font-size: 20px;">refresh</i>
+                        <span>Refresh Printers</span>
+                    </button>
+                </div>
+                <div class="section-body">
+                    <div class="info-box">
+                        <span class="icon">ℹ️</span>
+                        <span>Map each kitchen to a local printer on your system.</span>
+                    </div>
+                    <div id="printer-mappings" class="printer-mappings">
+                        <p class="text-muted">Click "Refresh Printers" to fetch and configure printer mappings</p>
+                    </div>
+                    <button id="save-start-printing" class="btn btn-dark btn-block" disabled>
+                        <i class="material-icons" style="font-size: 20px;">play_arrow</i>
+                        <span>Save & Start Printing</span>
+                    </button>
+                    <div id="autostart-status" class="status-message"></div>
+                </div>
+            </section>
+
+
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <div class="footer-content">
+                <span>© 2026 Restify. All rights reserved.</span>
+                <span id="status-text">Ready</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>

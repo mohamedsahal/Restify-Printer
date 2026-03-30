@@ -1,0 +1,105 @@
+╔══════════════════════════════════════════════════════════════╗
+║           Restify Desktop Printer - Quick Start             ║
+╚══════════════════════════════════════════════════════════════╝
+
+📦 INSTALLATION (3 Steps)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Install Node.js
+   → Download: https://nodejs.org/
+   → Run installer, click "Next" through all steps
+
+2. Install Dependencies
+   → Open terminal in desktop-printer-app folder
+   → Run: npm install
+   → Wait 2-3 minutes
+
+3. Run the App
+   → Run: npm start
+   → App window opens!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 FIRST-TIME SETUP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Enter Domain URL
+   Example: https://restaurant.restify.com
+
+2. Enter API Key
+   Get from: Restify → Settings → Printer → Branch Key
+
+3. Click "Test Connection"
+   Should show: "Connected" (green)
+
+4. Click "Refresh Printers"
+   Loads your printers from server
+
+5. Map Printers
+   Select local printer for each kitchen/POS
+
+6. Click "Save & Start Printing"
+   Service starts automatically!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🏗️ BUILD EXECUTABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Windows:  npm run build:win
+macOS:    npm run build:mac
+Linux:    npm run build:linux
+
+Output in: dist/ folder
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🐛 TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Problem: "npm: command not found"
+Fix: Install Node.js first
+
+Problem: "Printers not detected"
+Fix: Check Control Panel → Devices and Printers (Windows)
+     Or run: lpstat -p (Mac/Linux)
+
+Problem: "Connection failed"
+Fix: Check Domain URL has https://
+     Verify API Key is correct
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 DOCUMENTATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+README.md          - Full documentation
+SETUP_GUIDE.md     - Detailed setup instructions
+INSTALL.md         - Quick install guide
+PROJECT_SUMMARY.md - Technical overview
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✨ FEATURES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ Real-time printing (Pusher)
+✓ Polling fallback (5 seconds)
+✓ Multi-printer support
+✓ Auto-start on boot
+✓ System tray integration
+✓ Image & PDF printing
+✓ 56mm, 80mm, 112mm formats
+✓ Cross-platform (Win/Mac/Linux)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎉 YOU'RE READY!
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Run: npm start
+Configure connection
+Map printers
+Start printing!
+
+Happy printing! 🖨️✨
