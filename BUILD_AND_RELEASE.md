@@ -9,71 +9,63 @@
 
 ---
 
-## Quick Start
+## 🚀 Quick Release (Automated)
 
-### Step 1: Set GitHub Token
-
-**Windows:**
-```cmd
-setup-github-token.bat
-```
-
-**macOS/Linux:**
-```bash
-chmod +x setup-github-token.sh
-./setup-github-token.sh
-```
-
-Or manually:
-
-**Windows CMD:**
-```cmd
-set GH_TOKEN=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so
-```
-
-**Windows PowerShell:**
+### Windows Release
 ```powershell
-$env:GH_TOKEN="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so"
+.\create-release.ps1
 ```
 
-**macOS/Linux:**
-```bash
-export GH_TOKEN=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so
+### macOS Release
+```powershell
+.\create-release-mac.ps1
 ```
 
-### Step 2: Install Dependencies
+### Quick Build Only
+```powershell
+# Windows
+.\create-release.ps1
 
-```bash
-npm install
+# macOS  
+.\build-mac.ps1
 ```
 
-### Step 3: Build
-
-```bash
-npm run build
-```
-
-This will:
-1. Build the executable
-2. Create installers
-3. Upload to GitHub releases automatically
+**What the scripts do:**
+1. ✅ Updates version in package.json
+2. ✅ Updates CHANGELOG.md
+3. ✅ Commits and pushes changes
+4. ✅ Builds platform-specific installer
+5. ✅ Publishes to GitHub
+6. ✅ Updates Laravel download URLs automatically
 
 ---
 
-## Release Process
+## 📋 Manual Release Process
 
-### 1. Update Version
+### Step 1: Set GitHub Token (One-time setup)
+
+**Windows PowerShell:**
+```powershell
+$env:GH_TOKEN="your_github_token_here"
+```
+
+**Windows CMD:**
+```cmd
+set GH_TOKEN=your_github_token_here
+```
+
+### Step 2: Update Version
 
 Edit `package.json`:
 ```json
-"version": "1.0.1"
+"version": "1.0.2"
 ```
 
-### 2. Update Changelog
+### Step 3: Update Changelog
 
-Create/update `CHANGELOG.md`:
+Edit `CHANGELOG.md`:
 ```markdown
-## v1.0.1 - 2026-03-30
+## v1.0.2 - 2026-03-30
 
 ### Added
 - New feature X
@@ -82,210 +74,187 @@ Create/update `CHANGELOG.md`:
 - Bug Y
 ```
 
-### 3. Commit Changes
+### Step 4: Commit Changes
 
 ```bash
 git add .
-git commit -m "Release v1.0.1"
+git commit -m "Release v1.0.2"
 git push origin main
 ```
 
-### 4: Build and Publish
+### Step 5: Build Platform-Specific
 
 ```bash
-# Set token (if not already set)
-setup-github-token.bat  # Windows
-# or
-./setup-github-token.sh  # macOS/Linux
+# Windows
+npm run build:win
 
-# Build and publish
+# macOS (requires macOS)
+npm run build:mac
+
+# All platforms
 npm run build
 ```
 
-### 5. Verify Release
+### Step 6: Update Laravel URLs
 
-Go to: https://github.com/mohamedsahal/Restify-Printer/releases
-
-You should see:
-- Release tag: `v1.0.1`
-- Files:
-  - `Restify-Printer-Setup-1.0.1.exe` (Windows)
-  - `Restify-Printer-1.0.1.dmg` (macOS)
-  - `Restify-Printer-1.0.1.AppImage` (Linux)
-  - `latest.yml` (update metadata)
-
----
-
-## Testing Updates
-
-### Test Scenario
-
-1. **Install v1.0.0:**
-   - Build with version 1.0.0
-   - Install the app
-   - Run it
-
-2. **Create v1.0.1 release:**
-   - Update version to 1.0.1
-   - Build and publish
-
-3. **Test update:**
-   - Run the v1.0.0 app
-   - Click "Check Updates"
-   - Should show: "Update available: v1.0.1"
-   - Click OK to download
-   - Click OK to install
-   - App restarts with v1.0.1
-
----
-
-## Build Commands
-
-### Build for Current Platform
 ```bash
-npm run build
-```
-
-### Build for Specific Platform
-```bash
-npm run build:win    # Windows
-npm run build:mac    # macOS
-npm run build:linux  # Linux
-```
-
-### Build Without Publishing
-```bash
-npm run build -- --publish never
+cd ..
+php artisan desktop-app:update-urls 1.0.2
+cd desktop-printer-app
 ```
 
 ---
 
-## Troubleshooting
+## 🔧 Commands Reference
 
-### "GH_TOKEN is not set"
+### Create New Release
+```bash
+# Windows (automated)
+.\create-release.ps1
 
-**Solution**: Run the setup script or set manually
+# macOS (automated)  
+.\create-release-mac.ps1
 
-### "Repository not found"
+# Manual steps
+npm version patch              # 1.0.1 → 1.0.2
+npm run build:win             # Build Windows .exe
+npm run build:mac             # Build macOS .dmg (requires macOS)
+php artisan desktop-app:update-urls 1.0.2  # Update Laravel URLs
+```
 
-**Cause**: Token doesn't have access to private repo
+### Platform-Specific Builds
+```bash
+npm run build:win    # Windows (.exe)
+npm run build:mac    # macOS (.dmg) 
+npm run build        # All platforms
+```
 
+### Version Types
+- `npm version patch` → 1.0.1 → 1.0.2 (bug fixes)
+- `npm version minor` → 1.0.1 → 1.1.0 (new features)  
+- `npm version major` → 1.0.1 → 2.0.0 (breaking changes)
+
+### Update Download URLs Only
+```bash
+php artisan desktop-app:update-urls 1.0.2
+```
+
+---
+
+## 🍎 macOS Build Requirements
+
+### System Requirements
+- **macOS 10.15+** (for building .dmg files)
+- **Xcode Command Line Tools**: `xcode-select --install`
+- **Node.js 16+**: Download from nodejs.org
+
+### Cross-Platform Building
+- **Windows → Windows**: ✅ Native
+- **Windows → macOS**: ❌ Requires macOS for .dmg
+- **macOS → macOS**: ✅ Native  
+- **macOS → Windows**: ✅ Possible with wine
+
+### Building on Windows
+You can prepare the release on Windows, but .dmg creation requires macOS:
+
+```powershell
+# Prepare release (Windows)
+.\create-release-mac.ps1
+
+# Then on macOS, complete the build:
+npm run build:mac
+gh release upload v1.0.2 dist/*.dmg
+```
+
+---
+
+## 🔍 Verification
+
+After creating a release, verify:
+
+1. **GitHub Release**: https://github.com/mohamedsahal/Restify-Printer/releases
+2. **Files uploaded**:
+   - `Restify-Printer-Setup-1.0.2.exe` (Windows)
+   - `Restify-Printer-1.0.2.dmg` (macOS)
+   - `latest.yml` (update metadata)
+3. **Laravel URLs updated**: Check printer settings page
+4. **Download works**: Test download from restaurant dashboard
+
+---
+
+## 🛠️ Troubleshooting
+
+### "401 Unauthorized"
+**Solution**: Update GitHub token with proper permissions:
+- Contents: Write ✅
+- Metadata: Read ✅
+
+### "Build succeeds but no GitHub release"
 **Solution**: 
-1. Go to: https://github.com/settings/tokens
-2. Edit your token
-3. Ensure `repo` scope is selected (all checkboxes)
-4. Save and use the new token
-
-### "Upload failed"
-
-**Cause**: Release already exists
-
-**Solution**: 
-1. Delete the release on GitHub
-2. Or increment version number
-3. Build again
-
-### "Permission denied"
-
-**Cause**: Token expired or invalid
-
-**Solution**: Generate a new token and update
-
----
-
-## GitHub Token Permissions
-
-Your token needs these scopes:
-- ✅ `repo` (Full control of private repositories)
-  - ✅ `repo:status`
-  - ✅ `repo_deployment`
-  - ✅ `public_repo`
-  - ✅ `repo:invite`
-  - ✅ `security_events`
-
----
-
-## Security Notes
-
-### ⚠️ Important
-
-1. **Never commit the token** to git
-2. **Keep `.env` in `.gitignore`**
-3. **Regenerate if exposed**
-4. **Use environment variables**
-
-### Token Storage
-
-**Permanent (Recommended):**
-
-**Windows:**
-1. Search "Environment Variables"
-2. Click "Environment Variables"
-3. Under "User variables", click "New"
-4. Variable name: `GH_TOKEN`
-5. Variable value: `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so`
-6. Click OK
-
-**macOS/Linux:**
-
-Add to `~/.bashrc` or `~/.zshrc`:
 ```bash
-export GH_TOKEN=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so
+npx electron-builder --publish always
 ```
 
-Then:
+### "Wrong download URL in Laravel"
+**Solution**:
 ```bash
-source ~/.bashrc  # or ~/.zshrc
+php artisan desktop-app:update-urls [version]
+```
+
+### macOS "App is damaged" Error
+**Solution**: The app needs to be signed and notarized for distribution
+```bash
+# For development/testing only:
+sudo xattr -rd com.apple.quarantine /Applications/Restify\ Printer.app
+```
+
+### "Cannot build .dmg on Windows"
+**Solution**: Use the two-step process:
+1. Run `.\create-release-mac.ps1` on Windows (prepares release)
+2. Run `npm run build:mac` on macOS (creates .dmg)
+3. Upload .dmg to GitHub release
+
+---
+
+## 📁 File Structure
+
+```
+desktop-printer-app/
+├── create-release.ps1         # 🚀 Windows release script
+├── create-release.bat         # 🚀 Windows release script (batch)
+├── create-release-mac.ps1     # 🍎 macOS release script  
+├── create-release-mac.sh      # 🍎 macOS release script (bash)
+├── build-mac.ps1             # 🍎 Simple macOS build
+├── package.json              # Version and build config
+├── CHANGELOG.md              # Release notes
+└── dist/                     # Built files
+    ├── Restify Printer Setup 1.0.1.exe    # Windows
+    ├── Restify Printer 1.0.1.dmg          # macOS
+    └── latest.yml                          # Update metadata
 ```
 
 ---
 
-## First Release Checklist
+## 🎯 Summary
 
-- [ ] GitHub repository created
-- [ ] Token generated with `repo` scope
-- [ ] Token set in environment
-- [ ] Dependencies installed (`npm install`)
-- [ ] Version is 1.0.0 in package.json
-- [ ] Build successful (`npm run build`)
-- [ ] Release appears on GitHub
-- [ ] Installer files uploaded
-- [ ] Test installation works
+### For Windows releases:
+```powershell
+.\create-release.ps1
+```
 
----
+### For macOS releases:
+```powershell
+.\create-release-mac.ps1    # (requires macOS for .dmg)
+# OR
+.\build-mac.ps1            # Simple build only
+```
 
-## Next Release Checklist
+**That's it!** The scripts handle everything automatically:
+- ✅ Version updates
+- ✅ Changelog updates  
+- ✅ Git commits
+- ✅ Platform-specific builds
+- ✅ GitHub releases
+- ✅ Laravel URL updates
 
-- [ ] Update version in package.json
-- [ ] Update CHANGELOG.md
-- [ ] Commit and push changes
-- [ ] Set GH_TOKEN environment variable
-- [ ] Run `npm run build`
-- [ ] Verify release on GitHub
-- [ ] Test update from previous version
-- [ ] Announce release
-
----
-
-## Support
-
-If you encounter issues:
-
-1. Check token permissions
-2. Verify repository access
-3. Check build logs
-4. Test with `--publish never` first
-5. Review GitHub Actions (if enabled)
-
----
-
-## Summary
-
-✅ **Your repository is configured!**
-
-- Repository: https://github.com/mohamedsahal/Restify-Printer
-- Token: Ready to use
-- Build: `npm run build`
-- Updates: Automatic via electron-updater
-
-Just run the setup script and build! 🚀
+Your restaurants will automatically get the new download links for both platforms! 🎉
