@@ -1,37 +1,4 @@
-# Dependencies
 node_modules/
-package-lock.json
-
-# Build output
 dist/
-build/
-
-# Electron
-out/
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Environment
 .env
-.env.local
-
-# Temp files
-*.tmp
-temp/
-
-# GitHub Token (NEVER COMMIT)
-setup-github-token.bat
-setup-github-token.sh
+*.log

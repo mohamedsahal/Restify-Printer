@@ -100,7 +100,7 @@ function createTray() {
     }
   ]);
 
-  tray.setToolTip('Restify Printer');
+  tray.setToolTip('Restify Printer — right-click and choose Quit to exit fully');
   tray.setContextMenu(contextMenu);
 
   tray.on('click', () => {

@@ -3,10 +3,28 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const util = require('util');
 
 const execPromise = util.promisify(exec);
+
+function spawnPromise(command, args, options = {}) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, {
+            stdio: 'ignore',
+            windowsHide: true,
+            ...options,
+        });
+        child.on('error', reject);
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve();
+            } else {
+                reject(new Error(`${command} exited with code ${code}`));
+            }
+        });
+    });
+}
 
 class PrinterService {
     constructor() {
@@ -112,33 +130,37 @@ class PrinterService {
             const response = await axios({
                 method: 'get',
                 url: imageUrl,
-                responseType: 'stream'
+                responseType: 'arraybuffer',
+                timeout: 60000,
+                maxRedirects: 5,
             });
+            await fs.promises.writeFile(tempFile, Buffer.from(response.data));
 
-            const writer = fs.createWriteStream(tempFile);
-            response.data.pipe(writer);
-
-            await new Promise((resolve, reject) => {
-                writer.on('finish', resolve);
-                writer.on('error', reject);
-            });
-
-            // Print using system command
             const platform = os.platform();
-            let printCommand;
 
             if (platform === 'win32') {
-                // Windows: Use mspaint to print
-                printCommand = `mspaint /pt "${tempFile}" "${printerName}"`;
+                // Prefer Windows Photo Viewer shell (lighter than launching full Paint).
+                const systemRoot = process.env.SystemRoot || 'C:\\Windows';
+                const shimgvw = path.join(systemRoot, 'System32', 'shimgvw.dll');
+                try {
+                    if (fs.existsSync(shimgvw)) {
+                        await spawnPromise('rundll32.exe', [
+                            `${shimgvw},ImageView_PrintTo`,
+                            tempFile,
+                            printerName,
+                        ]);
+                    } else {
+                        throw new Error('shimgvw.dll not found');
+                    }
+                } catch (e) {
+                    console.warn('Fast image print failed, using mspaint:', e.message);
+                    await execPromise(`mspaint /pt "${tempFile}" "${printerName}"`);
+                }
             } else if (platform === 'darwin') {
-                // macOS: Use lp command
-                printCommand = `lp -d "${printerName}" "${tempFile}"`;
+                await execPromise(`lp -d "${printerName}" "${tempFile}"`);
             } else {
-                // Linux: Use lp command
-                printCommand = `lp -d "${printerName}" "${tempFile}"`;
+                await execPromise(`lp -d "${printerName}" "${tempFile}"`);
             }
-
-            await execPromise(printCommand);
 
             // Clean up temp file
             setTimeout(() => {

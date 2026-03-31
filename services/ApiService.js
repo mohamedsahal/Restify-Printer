@@ -1,6 +1,21 @@
 const axios = require('axios');
 const Pusher = require('pusher-js');
 
+/** How often we pull pending jobs when Pusher is unavailable or misses an event */
+const PRINT_JOB_POLL_MS = 1500;
+
+/** After a Pusher signal, image file may land a moment later — short burst of pulls */
+const PUSH_PULL_BURST_MS = 350;
+const PUSH_PULL_BURST_ATTEMPTS = 15;
+
+function branchApiHeaders(apiKey) {
+    return {
+        'X-TABLETRACK-KEY': apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+    };
+}
+
 class ApiService {
     constructor(domainUrl, apiKey) {
         this.domainUrl = domainUrl;
@@ -11,27 +26,19 @@ class ApiService {
         
         this.axiosInstance = axios.create({
             baseURL: `${domainUrl}/api`,
-            headers: {
-                'X-RestiFy-KEY': apiKey,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            timeout: 30000
+            headers: branchApiHeaders(apiKey),
+            timeout: 30000,
         });
     }
 
     updateConfig(domainUrl, apiKey) {
         this.domainUrl = domainUrl;
         this.apiKey = apiKey;
-        
+
         this.axiosInstance = axios.create({
             baseURL: `${domainUrl}/api`,
-            headers: {
-                'X-RestiFy-KEY': apiKey,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            timeout: 30000
+            headers: branchApiHeaders(apiKey),
+            timeout: 30000,
         });
     }
 
@@ -55,9 +62,12 @@ class ApiService {
             return { success: false, message: 'Connection failed' };
         } catch (error) {
             console.error('Connection test failed:', error);
+            const data = error.response?.data;
+            const base = data?.message || error.message || 'Connection failed';
+            const hint = data?.hint ? ` ${data.hint}` : '';
             return {
                 success: false,
-                message: error.response?.data?.message || error.message || 'Connection failed'
+                message: `${base}${hint}`.trim(),
             };
         }
     }
@@ -128,38 +138,52 @@ class ApiService {
         }
     }
 
+    async pullBurstAfterSignal(printerService, printerMappings, statusCallback) {
+        for (let i = 0; i < PUSH_PULL_BURST_ATTEMPTS; i++) {
+            await this.pullAndProcessJobs(printerService, printerMappings, statusCallback);
+            await new Promise((r) => setTimeout(r, PUSH_PULL_BURST_MS));
+        }
+    }
+
+    async pullAndProcessJobs(printerService, printerMappings, statusCallback) {
+        try {
+            const result = await this.getPrintJobs();
+            if (result.success && result.jobs.length > 0) {
+                for (const job of result.jobs) {
+                    await this.processPrintJob(job, printerService, printerMappings, statusCallback);
+                }
+            }
+        } catch (error) {
+            console.error('Polling error:', error);
+            statusCallback({
+                type: 'error',
+                message: 'Polling error: ' + error.message
+            });
+        }
+    }
+
     startPolling(printerService, printerMappings, statusCallback) {
         // Clear existing interval
         if (this.pollingInterval) {
             clearInterval(this.pollingInterval);
         }
 
-        // Setup Pusher real-time listener if available
+        // Pusher payload is not guaranteed to match pull-multiple shape; the image file
+        // may not exist yet. Pull from API (with a short burst) so we get full rows + file-ready jobs.
         if (this.channel) {
-            this.channel.bind('print-job.created', async (data) => {
-                console.log('New print job received via Pusher:', data);
-                await this.processPrintJob(data, printerService, printerMappings, statusCallback);
+            this.channel.bind('print-job.created', (data) => {
+                console.log('New print job signal via Pusher:', data);
+                void this.pullBurstAfterSignal(printerService, printerMappings, statusCallback);
             });
         }
 
-        // Polling fallback (every 5 seconds)
-        this.pollingInterval = setInterval(async () => {
-            try {
-                const result = await this.getPrintJobs();
-                
-                if (result.success && result.jobs.length > 0) {
-                    for (const job of result.jobs) {
-                        await this.processPrintJob(job, printerService, printerMappings, statusCallback);
-                    }
-                }
-            } catch (error) {
-                console.error('Polling error:', error);
-                statusCallback({
-                    type: 'error',
-                    message: 'Polling error: ' + error.message
-                });
-            }
-        }, 5000);
+        // Don't wait a full interval after starting — pull once immediately
+        void this.pullAndProcessJobs(printerService, printerMappings, statusCallback);
+
+        // Polling fallback while Pusher is down or events are delayed
+        this.pollingInterval = setInterval(() => {
+            void this.pullAndProcessJobs(printerService, printerMappings, statusCallback);
+        }, PRINT_JOB_POLL_MS);
 
         statusCallback({
             type: 'success',
@@ -168,19 +192,25 @@ class ApiService {
     }
 
     async processPrintJob(job, printerService, printerMappings, statusCallback) {
+        const jobId = job.id ?? job.print_job_id;
         try {
+            if (jobId == null) {
+                console.error('Print job missing id:', job);
+                return;
+            }
+
             // Find printer mapping
             const mapping = printerMappings.find(m => m.remotePrinterId === job.printer_id);
             
             if (!mapping) {
                 console.log('No mapping found for printer:', job.printer_id);
-                await this.updatePrintJob(job.id, 'failed', 'No printer mapping found');
+                await this.updatePrintJob(jobId, 'failed', 'No printer mapping found');
                 return;
             }
 
             statusCallback({
                 type: 'info',
-                message: `Printing job #${job.id} to ${mapping.localPrinterName}...`
+                message: `Printing job #${jobId} to ${mapping.localPrinterName}...`
             });
 
             // Print the job
@@ -192,21 +222,23 @@ class ApiService {
             );
 
             if (printResult.success) {
-                await this.updatePrintJob(job.id, 'done', null, mapping.localPrinterName);
+                await this.updatePrintJob(jobId, 'done', null, mapping.localPrinterName);
                 statusCallback({
                     type: 'success',
-                    message: `✓ Job #${job.id} printed successfully`
+                    message: `✓ Job #${jobId} printed successfully`
                 });
             } else {
-                await this.updatePrintJob(job.id, 'failed', printResult.error);
+                await this.updatePrintJob(jobId, 'failed', printResult.error);
                 statusCallback({
                     type: 'error',
-                    message: `✗ Job #${job.id} failed: ${printResult.error}`
+                    message: `✗ Job #${jobId} failed: ${printResult.error}`
                 });
             }
         } catch (error) {
             console.error('Error processing print job:', error);
-            await this.updatePrintJob(job.id, 'failed', error.message);
+            if (jobId != null) {
+                await this.updatePrintJob(jobId, 'failed', error.message);
+            }
             statusCallback({
                 type: 'error',
                 message: `Error: ${error.message}`
