@@ -10,7 +10,8 @@
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
-    "release:win": "node scripts/release-win.cjs"
+    "release:win": "node scripts/release-win.cjs",
+    "deps:fix": "node scripts/reinstall-electron-deps.cjs"
   },
   "keywords": [
     "printer",
@@ -30,7 +31,7 @@
   },
   "devDependencies": {
     "dotenv": "^16.4.5",
-    "electron": "^28.0.0",
+    "electron": "28.3.3",
     "electron-builder": "^24.9.1"
   },
   "build": {
