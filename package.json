@@ -22,12 +22,13 @@
   "author": "Restify",
   "license": "MIT",
   "dependencies": {
+    "auto-launch": "^5.0.6",
     "axios": "^1.6.0",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.7",
     "node-thermal-printer": "^4.4.4",
-    "pusher-js": "^8.4.0-rc2",
-    "auto-launch": "^5.0.6",
-    "electron-updater": "^6.1.7"
+    "pdf-to-printer": "^5.7.0",
+    "pusher-js": "^8.4.0-rc2"
   },
   "devDependencies": {
     "dotenv": "^16.4.5",
@@ -40,6 +41,13 @@
     "directories": {
       "output": "dist"
     },
+    "extraResources": [
+      {
+        "from": "vendor/SumatraPDF",
+        "to": "vendor/SumatraPDF",
+        "filter": ["**/*"]
+      }
+    ],
     "win": {
       "target": [
         "nsis"
