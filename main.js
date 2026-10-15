@@ -374,4 +374,7 @@ app.on('before-quit', () => {
   if (apiService) {
     apiService.stopPolling();
   }
+  if (printerService) {
+    printerService.shutdown();
+  }
 });

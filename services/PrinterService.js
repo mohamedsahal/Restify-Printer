@@ -81,105 +81,258 @@ function spawnFileAsync(exePath, args, options = {}) {
     });
 }
 
-/** Written to %TEMP% at runtime so printing works inside packaged ASAR. */
-const WINDOWS_THERMAL_PRINT_PS1 = String.raw`#requires -Version 5.0
-param(
-    [Parameter(Mandatory = $true)][string]$ImagePath,
-    [Parameter(Mandatory = $true)][string]$PrinterName
-)
+/**
+ * Written to %TEMP% at runtime (printing works inside the packaged ASAR). A long-lived
+ * worker: PowerShell and System.Drawing start once, then every ticket is one JSON line on
+ * stdin ({"id","imagePath","printerName"}) answered by "OK <id>" or "ERR <id> <message>".
+ * Starting a PowerShell process per ticket used to cost one to three seconds each.
+ */
+const WINDOWS_PRINT_WORKER_PS1 = String.raw`#requires -Version 5.0
 $ErrorActionPreference = 'Stop'
-if (-not (Test-Path -LiteralPath $ImagePath)) {
-    Write-Error "Image not found: $ImagePath"
-    exit 1
-}
 Add-Type -AssemblyName System.Drawing
-$img = $null
-$pd = $null
-try {
-    $img = [System.Drawing.Image]::FromFile($ImagePath)
-    $pd = New-Object System.Drawing.Printing.PrintDocument
-    $pd.PrinterSettings.PrinterName = $PrinterName
-    if (-not $pd.PrinterSettings.IsValid) {
-        Write-Error "Printer not found or invalid: $PrinterName"
-        exit 2
-    }
-    $pd.PrinterSettings.DefaultPageSettings.Landscape = $false
-    $pd.DefaultPageSettings.Landscape = $false
-    $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
-    try { $pd.DefaultPageSettings.Color = $false } catch { }
 
-    # For thermal printers, try to use a large paper size to avoid pagination.
-    # Receipts are continuous roll paper - we want one long virtual page.
-    $paperSizes = $pd.PrinterSettings.PaperSizes
-    $customSize = $null
-    if ($paperSizes) {
-        # Prefer 'Roll' or 'Custom' or the tallest paper size available
-        foreach ($size in $paperSizes) {
-            if ($size.Kind -eq [System.Drawing.Printing.PaperKind]::Roll -or
-                $size.Kind -eq [System.Drawing.Printing.PaperKind]::Custom) {
-                $customSize = $size
-                break
-            }
+function Print-ReceiptImage([string]$ImagePath, [string]$PrinterName) {
+    if (-not (Test-Path -LiteralPath $ImagePath)) {
+        throw "Image not found: $ImagePath"
+    }
+    $script:img = $null
+    $script:pd = $null
+    try {
+        $script:img = [System.Drawing.Image]::FromFile($ImagePath)
+        $script:pd = New-Object System.Drawing.Printing.PrintDocument
+        $script:pd.PrinterSettings.PrinterName = $PrinterName
+        if (-not $script:pd.PrinterSettings.IsValid) {
+            throw "Printer not found or invalid: $PrinterName"
         }
-        if (-not $customSize) {
-            # Pick the tallest paper size (most likely to accommodate long receipts)
-            $maxHeight = 0
+        $script:pd.PrintController = New-Object System.Drawing.Printing.StandardPrintController
+        $script:pd.PrinterSettings.DefaultPageSettings.Landscape = $false
+        $script:pd.DefaultPageSettings.Landscape = $false
+        $script:pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+        try { $script:pd.DefaultPageSettings.Color = $false } catch { }
+
+        # For thermal printers, try to use a large paper size to avoid pagination.
+        # Receipts are continuous roll paper - we want one long virtual page.
+        $paperSizes = $script:pd.PrinterSettings.PaperSizes
+        $customSize = $null
+        if ($paperSizes) {
+            # Prefer 'Roll' or 'Custom' or the tallest paper size available
             foreach ($size in $paperSizes) {
-                if ($size.Height -gt $maxHeight) {
-                    $maxHeight = $size.Height
+                if ($size.Kind -eq [System.Drawing.Printing.PaperKind]::Roll -or
+                    $size.Kind -eq [System.Drawing.Printing.PaperKind]::Custom) {
                     $customSize = $size
+                    break
                 }
             }
+            if (-not $customSize) {
+                # Pick the tallest paper size (most likely to accommodate long receipts)
+                $maxHeight = 0
+                foreach ($size in $paperSizes) {
+                    if ($size.Height -gt $maxHeight) {
+                        $maxHeight = $size.Height
+                        $customSize = $size
+                    }
+                }
+            }
+            if ($customSize) {
+                $script:pd.DefaultPageSettings.PaperSize = $customSize
+            }
         }
-        if ($customSize) {
-            $pd.DefaultPageSettings.PaperSize = $customSize
+
+        $script:srcY = 0
+        $script:scale = 0.0
+        $script:chunkSrcH = 0
+
+        $script:pd.add_PrintPage({
+            param($sender, $e)
+            $g = $e.Graphics
+            $g.PageUnit = [System.Drawing.GraphicsUnit]::Pixel
+            $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $m = $e.MarginBounds
+            $dpiX = $g.DpiX
+            $dpiY = $g.DpiY
+            # MarginBounds are in hundredths of an inch; convert to pixels for consistent scaling
+            $mw = [int][Math]::Max(1, [Math]::Round($m.Width * $dpiX / 100.0))
+            $mh = [int][Math]::Max(1, [Math]::Round($m.Height * $dpiY / 100.0))
+            # Thermal drivers often use a "landscape" GDI box (mw > mh). Receipt PNGs are tall; roll width is the SHORT edge.
+            $rollPx = [Math]::Min($mw, $mh)
+            $feedPx = [Math]::Max($mw, $mh)
+            if ($script:scale -eq 0.0) {
+                $script:scale = [double]$rollPx / [double]$script:img.Width
+                if ($script:scale -le 0) { $script:scale = 1.0 }
+                $script:chunkSrcH = [int][Math]::Floor($feedPx / $script:scale)
+                if ($script:chunkSrcH -lt 1) { $script:chunkSrcH = 1 }
+            }
+            $remaining = $script:img.Height - $script:srcY
+            if ($remaining -le 0) {
+                $e.HasMorePages = $false
+                return
+            }
+            $take = [Math]::Min($script:chunkSrcH, $remaining)
+            $destH = [int][Math]::Max(1, [Math]::Round($take * $script:scale))
+            $srcRect = New-Object System.Drawing.Rectangle(0, $script:srcY, $script:img.Width, $take)
+            $destRect = New-Object System.Drawing.Rectangle(0, 0, $rollPx, $destH)
+            $g.DrawImage($script:img, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
+            $script:srcY += $take
+            $e.HasMorePages = ($script:srcY -lt $script:img.Height)
+        })
+        $script:pd.Print()
+    } finally {
+        if ($null -ne $script:img) { $script:img.Dispose() }
+        if ($null -ne $script:pd) { $script:pd.Dispose() }
+    }
+}
+
+[Console]::Out.WriteLine('READY')
+[Console]::Out.Flush()
+while ($true) {
+    $line = [Console]::In.ReadLine()
+    if ($null -eq $line) { break }
+    if ($line.Trim() -eq '') { continue }
+    $id = ''
+    try {
+        $req = $line | ConvertFrom-Json
+        $id = [string]$req.id
+        Print-ReceiptImage ([string]$req.imagePath) ([string]$req.printerName)
+        [Console]::Out.WriteLine("OK $id")
+    } catch {
+        $msg = ([string]$_.Exception.Message) -replace "[\r\n]+", " "
+        [Console]::Out.WriteLine("ERR $id $msg")
+    }
+    [Console]::Out.Flush()
+}
+`;
+
+/** The PowerShell to run (RESTIFY_POWERSHELL overrides it, e.g. pwsh.exe or a test stub). */
+const POWERSHELL = process.env.RESTIFY_POWERSHELL || 'powershell.exe';
+
+/** A PowerShell single-quoted string literal. */
+function psLiteral(value) {
+    return "'" + String(value).replace(/'/g, "''") + "'";
+}
+
+/** How long one ticket may take in the worker (spooling to a stopped printer can hang). */
+const WORKER_PRINT_TIMEOUT_MS = 60_000;
+const WORKER_START_TIMEOUT_MS = 30_000;
+
+/**
+ * Keeps one PowerShell process alive and sends it print requests one after another.
+ * If the process dies, the next request starts a fresh one.
+ */
+class WindowsPrintWorker {
+    constructor() {
+        this.child = null;
+        this.starting = null;
+        this.pending = new Map();
+        this.seq = 0;
+        this.buffer = '';
+    }
+
+    start() {
+        if (this.child) {
+            return Promise.resolve();
+        }
+        if (this.starting) {
+            return this.starting;
+        }
+        this.starting = (async () => {
+            const scriptPath = path.join(os.tmpdir(), 'restify-print-worker.ps1');
+            await fs.promises.writeFile(scriptPath, WINDOWS_PRINT_WORKER_PS1, 'utf8');
+            const child = spawn(
+                POWERSHELL,
+                ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+                { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }
+            );
+            let stderr = '';
+            child.stderr.on('data', (d) => {
+                stderr += d.toString();
+                if (stderr.length > 4000) stderr = stderr.slice(-4000);
+            });
+            child.stdout.on('data', (d) => this.onData(d.toString()));
+            child.on('error', (e) => this.onExit(e.message));
+            child.on('close', (code) => this.onExit(`print worker exited with code ${code}${stderr ? ': ' + stderr.trim() : ''}`));
+
+            await new Promise((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error('print worker did not start in time')), WORKER_START_TIMEOUT_MS);
+                this.pending.set('READY', {
+                    resolve: () => { clearTimeout(timer); resolve(); },
+                    reject: (e) => { clearTimeout(timer); reject(e); },
+                });
+            });
+            this.child = child;
+        })();
+        return this.starting.finally(() => { this.starting = null; });
+    }
+
+    onData(text) {
+        this.buffer += text;
+        let nl;
+        while ((nl = this.buffer.indexOf('\n')) >= 0) {
+            const line = this.buffer.slice(0, nl).trim();
+            this.buffer = this.buffer.slice(nl + 1);
+            if (!line) continue;
+            if (line === 'READY') {
+                this.pending.get('READY')?.resolve();
+                this.pending.delete('READY');
+                continue;
+            }
+            const m = /^(OK|ERR) (\S+)(?: (.*))?$/.exec(line);
+            if (!m) {
+                console.log('[print worker]', line);
+                continue;
+            }
+            const waiter = this.pending.get(m[2]);
+            this.pending.delete(m[2]);
+            if (!waiter) continue;
+            if (m[1] === 'OK') {
+                waiter.resolve();
+            } else {
+                const err = new Error(m[3] || 'print failed');
+                err.fromPrinter = true;
+                waiter.reject(err);
+            }
         }
     }
 
-    $script:srcY = 0
-    $script:scale = 0.0
-    $script:chunkSrcH = 0
+    onExit(reason) {
+        this.child = null;
+        const waiters = [...this.pending.values()];
+        this.pending.clear();
+        for (const w of waiters) w.reject(new Error(reason));
+    }
 
-    $pd.add_PrintPage({
-        param($sender, $e)
-        $g = $e.Graphics
-        $g.PageUnit = [System.Drawing.GraphicsUnit]::Pixel
-        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        $m = $e.MarginBounds
-        $dpiX = $g.DpiX
-        $dpiY = $g.DpiY
-        # MarginBounds are in hundredths of an inch; convert to pixels for consistent scaling
-        $mw = [int][Math]::Max(1, [Math]::Round($m.Width * $dpiX / 100.0))
-        $mh = [int][Math]::Max(1, [Math]::Round($m.Height * $dpiY / 100.0))
-        # Thermal drivers often use a "landscape" GDI box (mw > mh). Receipt PNGs are tall; roll width is the SHORT edge.
-        $rollPx = [Math]::Min($mw, $mh)
-        $feedPx = [Math]::Max($mw, $mh)
-        if ($script:scale -eq 0.0) {
-            $script:scale = [double]$rollPx / [double]$img.Width
-            if ($script:scale -le 0) { $script:scale = 1.0 }
-            $script:chunkSrcH = [int][Math]::Floor($feedPx / $script:scale)
-            if ($script:chunkSrcH -lt 1) { $script:chunkSrcH = 1 }
+    async print(imagePath, printerName) {
+        await this.start();
+        const id = String(++this.seq);
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.pending.delete(id);
+                reject(new Error('print worker timed out, restarting it'));
+                this.stop();
+            }, WORKER_PRINT_TIMEOUT_MS);
+            this.pending.set(id, {
+                resolve: () => { clearTimeout(timer); resolve(); },
+                reject: (e) => { clearTimeout(timer); reject(e); },
+            });
+            this.child.stdin.write(JSON.stringify({ id, imagePath, printerName }) + '\n', (err) => {
+                if (err) {
+                    this.pending.delete(id);
+                    clearTimeout(timer);
+                    reject(err);
+                }
+            });
+        });
+    }
+
+    stop() {
+        const child = this.child;
+        this.child = null;
+        if (child) {
+            try { child.stdin.end(); } catch (_) { /* ignore */ }
+            try { child.kill(); } catch (_) { /* ignore */ }
         }
-        $remaining = $img.Height - $script:srcY
-        if ($remaining -le 0) {
-            $e.HasMorePages = $false
-            return
-        }
-        $take = [Math]::Min($script:chunkSrcH, $remaining)
-        $destH = [int][Math]::Max(1, [Math]::Round($take * $script:scale))
-        $srcRect = New-Object System.Drawing.Rectangle(0, $script:srcY, $img.Width, $take)
-        $destRect = New-Object System.Drawing.Rectangle(0, 0, $rollPx, $destH)
-        $g.DrawImage($img, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
-        $script:srcY += $take
-        $e.HasMorePages = ($script:srcY -lt $img.Height)
-    })
-    $pd.Print()
-} finally {
-    if ($null -ne $img) { $img.Dispose() }
-    if ($null -ne $pd) { $pd.Dispose() }
+    }
 }
-`;
 
 function spawnPromise(command, args, options = {}) {
     return new Promise((resolve, reject) => {
@@ -202,6 +355,22 @@ function spawnPromise(command, args, options = {}) {
 class PrinterService {
     constructor() {
         this.printers = [];
+        this.worker = os.platform() === 'win32' || process.env.RESTIFY_POWERSHELL ? new WindowsPrintWorker() : null;
+    }
+
+    /** Start the print worker before the first ticket arrives. */
+    async warmUp() {
+        if (!this.worker) return;
+        try {
+            await this.worker.start();
+            console.log('Print worker ready');
+        } catch (e) {
+            console.warn('Print worker could not start (tickets will use one-shot printing):', e.message);
+        }
+    }
+
+    shutdown() {
+        this.worker?.stop();
     }
 
     async getSystemPrinters() {
@@ -329,8 +498,28 @@ class PrinterService {
     }
 
     async printImageWindowsGdi(imagePath, printerName) {
-        const scriptPath = path.join(os.tmpdir(), 'restify-print-image-thermal.ps1');
-        await fs.promises.writeFile(scriptPath, WINDOWS_THERMAL_PRINT_PS1, 'utf8');
+        if (this.worker) {
+            try {
+                await this.worker.print(imagePath, printerName);
+                return;
+            } catch (e) {
+                if (e.fromPrinter) {
+                    throw e;
+                }
+                console.warn('Print worker unavailable, printing with a one-shot PowerShell:', e.message);
+            }
+        }
+        return this.printImageWindowsGdiOnce(imagePath, printerName);
+    }
+
+    /** One PowerShell process for one ticket: the worker script run once (fallback). */
+    async printImageWindowsGdiOnce(imagePath, printerName) {
+        const scriptPath = path.join(os.tmpdir(), 'restify-print-image-once.ps1');
+        const once = WINDOWS_PRINT_WORKER_PS1
+            .replace("[Console]::Out.WriteLine('READY')", '')
+            .replace(/while \(\$true\) \{[\s\S]*$/, '')
+            + `Print-ReceiptImage ${psLiteral(imagePath)} ${psLiteral(printerName)}\n`;
+        await fs.promises.writeFile(scriptPath, once, 'utf8');
         return new Promise((resolve, reject) => {
             const args = [
                 '-NoProfile',
@@ -338,12 +527,8 @@ class PrinterService {
                 'Bypass',
                 '-File',
                 scriptPath,
-                '-ImagePath',
-                imagePath,
-                '-PrinterName',
-                printerName,
             ];
-            const child = spawn('powershell.exe', args, { windowsHide: true });
+            const child = spawn(POWERSHELL, args, { windowsHide: true });
             let errText = '';
             if (child.stderr) {
                 child.stderr.on('data', (d) => {
@@ -571,3 +756,5 @@ class PrinterService {
 }
 
 module.exports = PrinterService;
+
+module.exports.WindowsPrintWorker = WindowsPrintWorker;

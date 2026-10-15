@@ -2,11 +2,14 @@ const axios = require('axios');
 const Pusher = require('pusher-js');
 
 /** How often we pull pending jobs when Pusher is unavailable or misses an event */
-const PRINT_JOB_POLL_MS = 1500;
+const PRINT_JOB_POLL_MS = 1000;
 
-/** After a Pusher signal, image file may land a moment later — short burst of pulls */
-const PUSH_PULL_BURST_MS = 350;
-const PUSH_PULL_BURST_ATTEMPTS = 15;
+/**
+ * After a Pusher signal the job is normally ready at once (the server announces it when the
+ * receipt image is on disk); a short burst of pulls covers a file that lands a moment later.
+ */
+const PUSH_PULL_BURST_MS = 250;
+const PUSH_PULL_BURST_ATTEMPTS = 12;
 
 function branchApiHeaders(apiKey) {
     return {
@@ -23,6 +26,7 @@ class ApiService {
         this.pollingInterval = null;
         this.pusher = null;
         this.channel = null;
+        this.pulling = false;
         
         this.axiosInstance = axios.create({
             baseURL: `${domainUrl}/api`,
@@ -140,25 +144,38 @@ class ApiService {
 
     async pullBurstAfterSignal(printerService, printerMappings, statusCallback) {
         for (let i = 0; i < PUSH_PULL_BURST_ATTEMPTS; i++) {
-            await this.pullAndProcessJobs(printerService, printerMappings, statusCallback);
+            const printed = await this.pullAndProcessJobs(printerService, printerMappings, statusCallback);
+            if (printed > 0) {
+                return;
+            }
             await new Promise((r) => setTimeout(r, PUSH_PULL_BURST_MS));
         }
     }
 
+    /** One pull; resolves the number of jobs handled. Pulls never overlap (one printer queue). */
     async pullAndProcessJobs(printerService, printerMappings, statusCallback) {
+        if (this.pulling) {
+            return 0;
+        }
+        this.pulling = true;
         try {
             const result = await this.getPrintJobs();
             if (result.success && result.jobs.length > 0) {
                 for (const job of result.jobs) {
                     await this.processPrintJob(job, printerService, printerMappings, statusCallback);
                 }
+                return result.jobs.length;
             }
+            return 0;
         } catch (error) {
             console.error('Polling error:', error);
             statusCallback({
                 type: 'error',
                 message: 'Polling error: ' + error.message
             });
+            return 0;
+        } finally {
+            this.pulling = false;
         }
     }
 
@@ -175,6 +192,11 @@ class ApiService {
                 console.log('New print job signal via Pusher:', data);
                 void this.pullBurstAfterSignal(printerService, printerMappings, statusCallback);
             });
+        }
+
+        // Start the print worker now so the first ticket does not pay its start-up time.
+        if (typeof printerService.warmUp === 'function') {
+            void printerService.warmUp();
         }
 
         // Don't wait a full interval after starting — pull once immediately
