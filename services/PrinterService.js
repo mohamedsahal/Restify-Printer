@@ -5,8 +5,16 @@ const path = require('path');
 const os = require('os');
 const { exec, spawn } = require('child_process');
 const util = require('util');
+const chromiumPrinter = require('./ChromiumPrinter');
 
 const execPromise = util.promisify(exec);
+
+/** Paper width of the old printFormat names, for callers that still send them. */
+const PRINT_FORMAT_WIDTH_MM = {
+    thermal56mm: 56,
+    thermal80mm: 80,
+    thermal112mm: 112,
+};
 
 function tryRequirePdfToPrinterPrint() {
     try {
@@ -356,53 +364,99 @@ class PrinterService {
     constructor() {
         this.printers = [];
         this.worker = os.platform() === 'win32' || process.env.RESTIFY_POWERSHELL ? new WindowsPrintWorker() : null;
+        this.chromium = chromiumPrinter;
     }
 
-    /** Start the print worker before the first ticket arrives. */
+    /** Start the Chromium window and the print worker before the first ticket arrives. */
     async warmUp() {
-        if (!this.worker) return;
-        try {
-            await this.worker.start();
-            console.log('Print worker ready');
-        } catch (e) {
-            console.warn('Print worker could not start (tickets will use one-shot printing):', e.message);
+        const tasks = [];
+        if (this.chromium.available) {
+            tasks.push(
+                this.chromium.warmUp().then((ok) => {
+                    if (ok) console.log('Chromium print window ready');
+                })
+            );
         }
+        if (this.worker) {
+            tasks.push(
+                this.worker.start().then(
+                    () => console.log('Print worker ready'),
+                    (e) => console.warn('Print worker could not start (tickets will use one-shot printing):', e.message)
+                )
+            );
+        }
+        await Promise.all(tasks);
     }
 
     shutdown() {
         this.worker?.stop();
+        this.chromium.shutdown();
     }
 
+    /**
+     * Chromium's list first (Windows 11 no longer ships wmic); the platform commands when it is
+     * not available or empty. `name` is exactly what the print engines expect as the device name.
+     * @returns {Promise<Array<{ name: string, type: string, isDefault: boolean }>>}
+     */
     async getSystemPrinters() {
-        try {
-            const platform = os.platform();
-            let printers = [];
+        const platform = os.platform();
+        const type = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'mac' : 'linux';
+        let printers = [];
 
-            if (platform === 'win32') {
-                printers = await this.getWindowsPrinters();
-            } else if (platform === 'darwin') {
-                printers = await this.getMacPrinters();
-            } else if (platform === 'linux') {
-                printers = await this.getLinuxPrinters();
+        if (this.chromium.available) {
+            try {
+                printers = (await this.chromium.getPrinters())
+                    .filter((p) => p.name)
+                    .map((p) => ({ name: p.name, type, isDefault: !!p.isDefault, displayName: p.displayName }));
+            } catch (error) {
+                console.warn('Chromium printer list failed, using system commands:', error.message);
+                printers = [];
             }
-
-            this.printers = printers;
-            return printers;
-        } catch (error) {
-            console.error('Failed to get system printers:', error);
-            return [];
         }
+
+        if (printers.length === 0) {
+            try {
+                if (platform === 'win32') {
+                    printers = await this.getWindowsPrinters();
+                } else if (platform === 'darwin') {
+                    printers = await this.getMacPrinters();
+                } else if (platform === 'linux') {
+                    printers = await this.getLinuxPrinters();
+                }
+            } catch (error) {
+                console.error('Failed to get system printers:', error);
+                printers = [];
+            }
+            printers = printers.map((p) => ({ isDefault: false, ...p }));
+        }
+
+        this.printers = printers;
+        return printers;
     }
 
+    /** wmic where it still exists, PowerShell's CIM query where it does not (Windows 11 24H2+). */
     async getWindowsPrinters() {
         try {
             const { stdout } = await execPromise('wmic printer get name');
             const lines = stdout.split('\n').filter(line => line.trim() && line.trim() !== 'Name');
-            
-            return lines.map(name => ({
+            const printers = lines.map(name => ({
                 name: name.trim(),
                 type: 'windows'
             }));
+            if (printers.length > 0) return printers;
+        } catch (error) {
+            console.warn('wmic printer list failed, trying PowerShell:', error.message);
+        }
+        try {
+            const { stdout } = await execPromise(
+                `${POWERSHELL} -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Printer | Select-Object -ExpandProperty Name"`,
+                { windowsHide: true }
+            );
+            return stdout
+                .split('\n')
+                .map((line) => line.trim())
+                .filter(Boolean)
+                .map((name) => ({ name, type: 'windows' }));
         } catch (error) {
             console.error('Failed to get Windows printers:', error);
             return [];
@@ -553,12 +607,88 @@ class PrinterService {
         });
     }
 
+    /**
+     * One print job, whatever the server sent. Chromium prints the ticket HTML (identical to the
+     * pop-up print); the image and PDF engines serve jobs without HTML, mappings that force the
+     * image engine, and Chromium failures when an image exists.
+     *
+     * @param {{ html?: string, imageUrl?: string, pdfUrl?: string, printerName: string,
+     *           widthMm?: number, copies?: number, engine?: 'chromium'|'image'|'pdf'|'auto' }} job
+     * @returns {Promise<{ success: boolean, error?: string, engine: 'chromium'|'image'|'pdf',
+     *                     fallback?: boolean, reason?: string, heightMm?: number, durationMs?: number }>}
+     */
+    async printJob(job) {
+        const printerName = String((job && job.printerName) || '');
+        const widthMm = Number(job && job.widthMm) > 0 ? Number(job.widthMm) : 80;
+        const copies = Math.max(1, parseInt(job && job.copies, 10) || 1);
+        const html = job && typeof job.html === 'string' && job.html.trim() ? job.html : null;
+        const imageUrl = (job && job.imageUrl) || null;
+        const pdfUrl = (job && job.pdfUrl) || null;
+        const forced = job && job.engine && job.engine !== 'auto' ? job.engine : null;
+
+        if (!printerName) {
+            return { success: false, error: 'No local printer name', engine: forced || (html ? 'chromium' : 'image') };
+        }
+
+        const useChromium = forced === 'chromium' || (!forced && html);
+        if (useChromium) {
+            if (!html) {
+                return { success: false, error: 'Chromium engine needs the ticket HTML', engine: 'chromium' };
+            }
+            const result = await this.chromium.printHtml({ html, printerName, widthMm, copies });
+            if (result.success) {
+                return { ...result, engine: 'chromium' };
+            }
+            const reason = result.error || 'Chromium print failed';
+            if (imageUrl || pdfUrl) {
+                console.warn(`Chromium print failed (${reason}), falling back to the ${imageUrl ? 'image' : 'PDF'} engine`);
+                const fallback = imageUrl
+                    ? await this.printImageCopies(printerName, imageUrl, copies)
+                    : await this.printPdfCopies(printerName, pdfUrl, copies);
+                return { ...fallback, engine: imageUrl ? 'image' : 'pdf', fallback: true, reason };
+            }
+            return { success: false, error: reason, engine: 'chromium' };
+        }
+
+        if (forced === 'pdf' || (!imageUrl && pdfUrl)) {
+            if (!pdfUrl) return { success: false, error: 'No PDF to print', engine: 'pdf' };
+            return { ...(await this.printPdfCopies(printerName, pdfUrl, copies)), engine: 'pdf' };
+        }
+        if (!imageUrl) {
+            return { success: false, error: 'Nothing to print: the job has no HTML, image or PDF', engine: 'image' };
+        }
+        return { ...(await this.printImageCopies(printerName, imageUrl, copies)), engine: 'image' };
+    }
+
+    /** The image engine prints one copy per call. */
+    async printImageCopies(printerName, imageUrl, copies) {
+        let result = { success: false, error: 'No copies requested' };
+        for (let i = 0; i < copies; i++) {
+            result = await this.printImage(printerName, imageUrl);
+            if (!result.success) break;
+        }
+        return result;
+    }
+
+    async printPdfCopies(printerName, pdfUrl, copies) {
+        let result = { success: false, error: 'No copies requested' };
+        for (let i = 0; i < copies; i++) {
+            result = await this.printPDF(printerName, pdfUrl);
+            if (!result.success) break;
+        }
+        return result;
+    }
+
+    /** The old entry point, kept for callers from before printJob(): same engines, same results. */
     async print(printerName, content, printType = 'image', printFormat = 'thermal80mm') {
         try {
+            const widthMm = PRINT_FORMAT_WIDTH_MM[printFormat] || 80;
             if (printType === 'image') {
-                return await this.printImage(printerName, content, printFormat);
+                return await this.printJob({ imageUrl: content, printerName, widthMm, engine: 'image' });
             } else if (printType === 'pdf') {
-                return await this.printPDF(printerName, content);
+                return await this.printJob({ pdfUrl: content, printerName, widthMm, engine: 'pdf' });
+            } else if (printType === 'html' || printType === 'chromium') {
+                return await this.printJob({ html: content, printerName, widthMm, engine: 'chromium' });
             } else {
                 return await this.printRaw(printerName, content, printFormat);
             }
@@ -618,8 +748,9 @@ class PrinterService {
                         await execPromise(`mspaint /pt "${tempFile}" "${printerName}"`);
                     }
                 }
-            } else if (platform === 'darwin') {
-                await execPromise(`lp -d "${printerName}" "${tempFile}"`);
+            } else if (this.worker) {
+                // RESTIFY_POWERSHELL on another platform: the worker protocol (pwsh, or a test stub) prints.
+                await this.worker.print(tempFile, printerName);
             } else {
                 await execPromise(`lp -d "${printerName}" "${tempFile}"`);
             }

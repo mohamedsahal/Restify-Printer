@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 *.log
+# test doubles for electron/axios/... loaded through NODE_PATH, not real packages
+!test/stubs/node_modules/
