@@ -56,7 +56,9 @@ function buildPrintJob(job, mapping) {
     const isPdf = /\.pdf(\?.*)?$/i.test(fileName);
     return {
         html: job.html || null,
-        imageUrl: !isPdf ? (job.image_path || null) : null,
+        // The server names an image file for every job, but only uploads one for jobs
+        // without HTML: the URL would be a 404 for an HTML job.
+        imageUrl: !isPdf && !job.html ? (job.image_path || null) : null,
         pdfUrl: isPdf ? job.image_path : null,
         widthMm: job.width_mm || widthFromFormat(job.printer?.print_format || mapping.printFormat),
         copies: Math.max(1, parseInt(mapping.copies || job.copies || 1, 10) || 1),
@@ -101,6 +103,7 @@ class ApiService {
         this.pusher = null;
         this.channel = null;
         this.pulling = false;
+        this.unacknowledged = new Map();
         this.signalHandler = null;
         this.consecutiveFailures = 0;
         this.connectionLost = false;
@@ -168,6 +171,7 @@ class ApiService {
             const hint = data?.hint ? ` ${data.hint}` : '';
             return {
                 success: false,
+                status: error.response?.status || null,
                 message: `${base}${hint}`.trim(),
             };
         }
@@ -239,18 +243,32 @@ class ApiService {
         }
     }
 
-    async updatePrintJob(jobId, status, error = null, printer = null) {
+    async updatePrintJob(jobId, status, error = null, printer = null, printedAt = null) {
+        const body = {
+            status: status,
+            printed_at: printedAt || new Date().toISOString(),
+            error: error,
+            printer: printer,
+        };
         try {
-            await this.axiosInstance.patch(`/print-jobs/${jobId}`, {
-                status: status,
-                printed_at: new Date().toISOString(),
-                error: error,
-                printer: printer,
-            });
+            await this.axiosInstance.patch(`/print-jobs/${jobId}`, body);
             return { success: true };
         } catch (err) {
-            this.logger.error(`Failed to update print job #${jobId}: ${err.message}`);
+            this.logger.error(`Failed to update print job #${jobId}: ${err.message} (will retry)`);
+            // A 4xx means the server refused it for good; anything else is retried later.
+            const code = err.response?.status;
+            if (!(code >= 400 && code < 500)) {
+                this.unacknowledged.set(String(jobId), body);
+            }
             return { success: false };
+        }
+    }
+
+    /** Resend outcomes the server never received (called after a successful pull). */
+    async flushUnacknowledged() {
+        for (const [jobId, body] of [...this.unacknowledged]) {
+            this.unacknowledged.delete(jobId);
+            await this.updatePrintJob(jobId, body.status, body.error, body.printer, body.printed_at);
         }
     }
 
@@ -308,6 +326,9 @@ class ApiService {
 
     async notePullSuccess(statusCallback) {
         this.consecutiveFailures = 0;
+        if (this.unacknowledged.size > 0) {
+            await this.flushUnacknowledged();
+        }
         if (!this.connectionLost) {
             return;
         }

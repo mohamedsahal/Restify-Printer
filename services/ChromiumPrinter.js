@@ -82,11 +82,11 @@ const MEASURE_SCRIPT = `(async () => {
     }
     const de = document.documentElement;
     const body = document.body;
-    const heightPx = Math.max(
-        de ? de.scrollHeight : 0,
-        body ? body.scrollHeight : 0,
-        body ? body.offsetHeight : 0
-    );
+    // Not documentElement.scrollHeight: it is never smaller than the (800 px) window, which
+    // would turn every short ticket into a 21 cm page. The body box is the ticket.
+    const heightPx = body
+        ? Math.max(body.scrollHeight, body.offsetHeight, Math.ceil(body.getBoundingClientRect().bottom + window.scrollY))
+        : (de ? de.scrollHeight : 0);
     return { heightPx: Math.ceil(heightPx), widthPx: de ? Math.ceil(de.scrollWidth) : 0, pageSize };
 })()`;
 
@@ -332,14 +332,25 @@ class ChromiumPrinter {
             this.windows.delete('');
         }
 
-        const win = await this.createWindow();
-        this.windows.set(printerName, { win, lastUsed: Date.now() });
-        win.on('closed', () => {
-            const entry = this.windows.get(printerName);
-            if (entry && entry.win === win) this.windows.delete(printerName);
-        });
-        this.startSweeper();
-        return win;
+        // One creation at a time per key: warmUp() and the printer list run together at launch.
+        this.creating = this.creating || new Map();
+        if (this.creating.has(printerName)) return this.creating.get(printerName);
+        const pending = (async () => {
+            const win = await this.createWindow();
+            this.windows.set(printerName, { win, lastUsed: Date.now() });
+            win.on('closed', () => {
+                const entry = this.windows.get(printerName);
+                if (entry && entry.win === win) this.windows.delete(printerName);
+            });
+            this.startSweeper();
+            return win;
+        })();
+        this.creating.set(printerName, pending);
+        try {
+            return await pending;
+        } finally {
+            this.creating.delete(printerName);
+        }
     }
 
     dropWindow(printerName) {
