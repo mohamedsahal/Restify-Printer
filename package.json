@@ -1,6 +1,6 @@
 {
   "name": "restify-printer",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Restify Desktop Printer Application",
   "main": "main.js",
   "scripts": {
@@ -11,7 +11,8 @@
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
     "release:win": "node scripts/release-win.cjs",
-    "deps:fix": "node scripts/reinstall-electron-deps.cjs"
+    "deps:fix": "node scripts/reinstall-electron-deps.cjs",
+    "test": "node test/run.cjs"
   },
   "keywords": [
     "printer",
@@ -45,7 +46,9 @@
       {
         "from": "vendor/SumatraPDF",
         "to": "vendor/SumatraPDF",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
@@ -80,7 +83,6 @@
       "provider": "github",
       "owner": "mohamedsahal",
       "repo": "Restify-Printer",
-      "private": false,
       "releaseType": "release"
     }
   }

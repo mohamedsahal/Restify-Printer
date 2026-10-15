@@ -506,3 +506,264 @@ input:checked + .slider:before {
 .section {
     animation: fadeIn 0.3s ease-out;
 }
+
+/* v1.1: service status, mapping table, recent prints */
+.section-header h2 .icon.material-icons {
+    font-size: 22px;
+    color: #e67e22;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-sm {
+    padding: 8px 14px;
+    font-size: 13px;
+}
+
+.btn-light {
+    background: #ecf0f1;
+    color: #2c3e50;
+}
+
+.btn-light:hover {
+    background: #d6dbdf;
+}
+
+.btn-danger {
+    background: #e74c3c;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c0392b;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.muted-note {
+    font-size: 12px;
+    color: #95a5a6;
+}
+
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+
+.status-item {
+    padding: 14px 16px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.status-item-wide {
+    grid-column: 1 / -1;
+}
+
+.status-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.status-value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #2c3e50;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow-wrap: anywhere;
+}
+
+.status-value.ok {
+    color: #1e8449;
+}
+
+.status-value.bad {
+    color: #c0392b;
+}
+
+.status-sub {
+    font-size: 12px;
+    color: #95a5a6;
+    min-height: 14px;
+}
+
+.update-row {
+    justify-content: space-between;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.progress {
+    display: block;
+    height: 6px;
+    border-radius: 3px;
+    background: #e9ecef;
+    overflow: hidden;
+    margin-top: 6px;
+}
+
+.progress-bar {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: #3498db;
+    transition: width 0.3s;
+}
+
+.dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+}
+
+.dot-grey { background: #bdc3c7; }
+.dot-green { background: #27ae60; box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.2); }
+.dot-amber { background: #f39c12; box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.2); }
+.dot-red { background: #e74c3c; box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.2); }
+
+/* Printer mapping table */
+.mapping-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+}
+
+.mapping-table th {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    padding: 8px 10px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.mapping-table td {
+    padding: 10px;
+    border-bottom: 1px solid #f1f3f5;
+    vertical-align: middle;
+}
+
+.mapping-table tr:last-child td {
+    border-bottom: none;
+}
+
+.mapping-table .remote-name {
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.mapping-table .remote-format {
+    display: block;
+    font-size: 12px;
+    color: #95a5a6;
+    font-weight: 400;
+}
+
+.mapping-table select,
+.mapping-table input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ced4da;
+    border-radius: 6px;
+    font-size: 13px;
+    background: white;
+}
+
+.mapping-table input[type="number"] {
+    width: 64px;
+}
+
+.mapping-table .col-copies { width: 80px; }
+.mapping-table .col-engine { width: 190px; }
+.mapping-table .col-test { width: 120px; text-align: right; }
+
+.mapping-table tr.unmapped .remote-name {
+    color: #95a5a6;
+}
+
+/* Recent prints */
+.recent-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.recent-table th {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    padding: 8px 10px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.recent-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f3f5;
+    vertical-align: top;
+}
+
+.recent-table .mono {
+    font-variant-numeric: tabular-nums;
+    color: #6c757d;
+    white-space: nowrap;
+}
+
+.recent-table .err {
+    color: #c0392b;
+    font-size: 12px;
+}
+
+.pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.pill-done {
+    background: #d4edda;
+    color: #155724;
+}
+
+.pill-failed {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.pill-engine {
+    background: #e9ecef;
+    color: #495057;
+    font-weight: 500;
+}
+
+@media (max-width: 1050px) {
+    .status-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

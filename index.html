@@ -13,11 +13,11 @@
         <header class="app-header">
             <div class="header-left">
                 <img src="assets/Restify.png" alt="Restify" class="logo-icon">
-                <h1>Printer Configuration</h1>
+                <h1>Restify Printer</h1>
             </div>
             <div class="header-right">
-                <span class="version">v<span id="app-version">1.0.0</span></span>
-                <button id="autostart-toggle" class="btn-pill btn-pill-green">
+                <span class="version">v<span id="app-version">1.1.0</span></span>
+                <button id="autostart-toggle" class="btn-pill btn-pill-green" title="Start Restify Printer when the computer is turned on">
                     <i class="material-icons">power_settings_new</i>
                     <span>Enable Autostart</span>
                 </button>
@@ -31,10 +31,63 @@
 
         <!-- Main Content -->
         <main class="main-content">
+            <!-- Service Status Section -->
+            <section class="section service-section">
+                <div class="section-header">
+                    <h2><i class="material-icons icon">monitor_heart</i> Service</h2>
+                    <div class="header-actions">
+                        <button id="open-log-btn" class="btn btn-light btn-sm" title="Open the log file">
+                            <i class="material-icons" style="font-size: 18px;">description</i>
+                            <span>Open log file</span>
+                        </button>
+                        <button id="save-start-printing" class="btn btn-dark btn-sm" disabled>
+                            <i class="material-icons" style="font-size: 18px;">play_arrow</i>
+                            <span>Start printing</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="section-body">
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <span class="status-label">Printing service</span>
+                            <span class="status-value"><span id="service-state" class="dot dot-grey"></span><span id="service-state-text">Stopped</span></span>
+                            <span id="service-since" class="status-sub"></span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Server connection</span>
+                            <span id="service-connection" class="status-value">Not tested</span>
+                            <span id="service-connection-sub" class="status-sub"></span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Real-time (Pusher)</span>
+                            <span id="service-pusher" class="status-value">Off</span>
+                            <span class="status-sub">Jobs are also pulled every second</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">App version</span>
+                            <span id="service-version" class="status-value">-</span>
+                            <span id="service-server-version" class="status-sub"></span>
+                        </div>
+                        <div class="status-item status-item-wide">
+                            <span class="status-label">Updates</span>
+                            <span class="status-value update-row">
+                                <span id="update-message">Checked automatically every 4 hours and installed when printing is idle.</span>
+                                <button id="install-update-btn" class="btn btn-primary btn-sm hidden">
+                                    <i class="material-icons" style="font-size: 18px;">system_update_alt</i>
+                                    <span>Install now</span>
+                                </button>
+                            </span>
+                            <span id="update-progress" class="progress hidden"><span id="update-progress-bar" class="progress-bar"></span></span>
+                        </div>
+                    </div>
+                    <div id="autostart-status" class="status-message"></div>
+                </div>
+            </section>
+
             <!-- Connection Section -->
             <section class="section connection-section">
                 <div class="section-header">
-                    <h2><span class="icon">📡</span> Connection</h2>
+                    <h2><i class="material-icons icon">wifi</i> Connection</h2>
                 </div>
                 <div class="section-body">
                     <div class="form-row">
@@ -57,29 +110,41 @@
             <!-- Printer Setup Section -->
             <section class="section printer-setup-section">
                 <div class="section-header">
-                    <h2><span class="icon">🖨️</span> Printer Setup</h2>
-                    <button id="refresh-printers" class="btn btn-secondary">
-                        <i class="material-icons" style="font-size: 20px;">refresh</i>
-                        <span>Refresh Printers</span>
-                    </button>
+                    <h2><i class="material-icons icon">print</i> Printer Setup</h2>
+                    <div class="header-actions">
+                        <button id="refresh-printers" class="btn btn-secondary btn-sm">
+                            <i class="material-icons" style="font-size: 18px;">refresh</i>
+                            <span>Refresh Printers</span>
+                        </button>
+                        <button id="save-mappings" class="btn btn-dark btn-sm" disabled>
+                            <i class="material-icons" style="font-size: 18px;">save</i>
+                            <span>Save mappings</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="section-body">
                     <div class="info-box">
-                        <span class="icon">ℹ️</span>
-                        <span>Map each kitchen to a local printer on your system.</span>
+                        <i class="material-icons" style="font-size: 18px;">info</i>
+                        <span>Map each kitchen or counter printer from Restify to a printer installed on this computer, then press <b>Test print</b> to check it.</span>
                     </div>
                     <div id="printer-mappings" class="printer-mappings">
-                        <p class="text-muted">Click "Refresh Printers" to fetch and configure printer mappings</p>
+                        <p class="text-muted">Click "Refresh Printers" to load the printers configured in Restify</p>
                     </div>
-                    <button id="save-start-printing" class="btn btn-dark btn-block" disabled>
-                        <i class="material-icons" style="font-size: 20px;">play_arrow</i>
-                        <span>Save & Start Printing</span>
-                    </button>
-                    <div id="autostart-status" class="status-message"></div>
                 </div>
             </section>
 
-
+            <!-- Recent prints -->
+            <section class="section recent-section">
+                <div class="section-header">
+                    <h2><i class="material-icons icon">receipt_long</i> Recent prints</h2>
+                    <span id="recent-count" class="muted-note"></span>
+                </div>
+                <div class="section-body">
+                    <div id="recent-prints" class="recent-prints">
+                        <p class="text-muted">No tickets printed yet</p>
+                    </div>
+                </div>
+            </section>
         </main>
 
         <!-- Footer -->
