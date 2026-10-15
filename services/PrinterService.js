@@ -97,6 +97,9 @@ function spawnFileAsync(exePath, args, options = {}) {
  */
 const WINDOWS_PRINT_WORKER_PS1 = String.raw`#requires -Version 5.0
 $ErrorActionPreference = 'Stop'
+# Requests arrive as UTF-8 JSON (printer names and paths may carry accents).
+[Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Add-Type -AssemblyName System.Drawing
 
 function Print-ReceiptImage([string]$ImagePath, [string]$PrinterName) {
@@ -312,23 +315,37 @@ class WindowsPrintWorker {
     async print(imagePath, printerName) {
         await this.start();
         const id = String(++this.seq);
+        const child = this.child;
+        if (!child) {
+            throw new Error('print worker is not running');
+        }
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pending.delete(id);
-                reject(new Error('print worker timed out, restarting it'));
-                this.stop();
+                const err = new Error('print worker timed out, restarting it');
+                err.timedOut = true;
+                reject(err);
+                if (this.child === child) {
+                    this.stop();
+                }
             }, WORKER_PRINT_TIMEOUT_MS);
             this.pending.set(id, {
                 resolve: () => { clearTimeout(timer); resolve(); },
                 reject: (e) => { clearTimeout(timer); reject(e); },
             });
-            this.child.stdin.write(JSON.stringify({ id, imagePath, printerName }) + '\n', (err) => {
-                if (err) {
-                    this.pending.delete(id);
-                    clearTimeout(timer);
-                    reject(err);
-                }
-            });
+            try {
+                child.stdin.write(JSON.stringify({ id, imagePath, printerName }) + '\n', (err) => {
+                    if (err) {
+                        this.pending.delete(id);
+                        clearTimeout(timer);
+                        reject(err);
+                    }
+                });
+            } catch (err) {
+                this.pending.delete(id);
+                clearTimeout(timer);
+                reject(err);
+            }
         });
     }
 
@@ -557,7 +574,9 @@ class PrinterService {
                 await this.worker.print(imagePath, printerName);
                 return;
             } catch (e) {
-                if (e.fromPrinter) {
+                // A printer error is final, and a timed-out ticket may still be spooling: a
+                // second attempt would print it twice. Only a worker that could not run is retried.
+                if (e.fromPrinter || e.timedOut) {
                     throw e;
                 }
                 console.warn('Print worker unavailable, printing with a one-shot PowerShell:', e.message);
@@ -573,7 +592,8 @@ class PrinterService {
             .replace("[Console]::Out.WriteLine('READY')", '')
             .replace(/while \(\$true\) \{[\s\S]*$/, '')
             + `Print-ReceiptImage ${psLiteral(imagePath)} ${psLiteral(printerName)}\n`;
-        await fs.promises.writeFile(scriptPath, once, 'utf8');
+        // With a BOM: Windows PowerShell 5 reads a BOM-less .ps1 as ANSI.
+        await fs.promises.writeFile(scriptPath, '\ufeff' + once, 'utf8');
         return new Promise((resolve, reject) => {
             const args = [
                 '-NoProfile',
@@ -645,7 +665,11 @@ class PrinterService {
                 const fallback = imageUrl
                     ? await this.printImageCopies(printerName, imageUrl, copies)
                     : await this.printPdfCopies(printerName, pdfUrl, copies);
-                return { ...fallback, engine: imageUrl ? 'image' : 'pdf', fallback: true, reason };
+                const engine = imageUrl ? 'image' : 'pdf';
+                if (!fallback.success) {
+                    return { success: false, error: `${reason}; ${engine} fallback: ${fallback.error}`, engine, fallback: true, reason };
+                }
+                return { ...fallback, engine, fallback: true, reason };
             }
             return { success: false, error: reason, engine: 'chromium' };
         }
@@ -655,6 +679,12 @@ class PrinterService {
             return { ...(await this.printPdfCopies(printerName, pdfUrl, copies)), engine: 'pdf' };
         }
         if (!imageUrl) {
+            if (html) {
+                // The mapping asks for the image engine but this job only has HTML (a
+                // modern server never uploads an image for it): Chromium is the only way.
+                const result = await this.chromium.printHtml({ html, printerName, widthMm, copies });
+                return { ...result, engine: 'chromium' };
+            }
             return { success: false, error: 'Nothing to print: the job has no HTML, image or PDF', engine: 'image' };
         }
         return { ...(await this.printImageCopies(printerName, imageUrl, copies)), engine: 'image' };

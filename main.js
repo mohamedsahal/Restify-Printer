@@ -53,7 +53,7 @@ const update = {
   message: '',
   checkedAt: null,
 };
-let lastJobFinishedAt = 0;
+let lastJobFinishedAt = Date.now();
 let quietInstallTimer = null;
 let updateTimers = [];
 
@@ -208,6 +208,9 @@ function launchedHidden() {
   if (process.argv.includes('--hidden')) {
     return true;
   }
+  if (process.argv.includes('--updated')) {
+    return store.get('relaunchHidden', true);
+  }
   if (process.platform === 'darwin') {
     try {
       const settings = app.getLoginItemSettings();
@@ -293,6 +296,14 @@ async function startPrinting({ manual = false, retry = false } = {}) {
 
     if (!result.success) {
       logger.warn(`Connection test failed: ${result.message}`);
+      if (result.status === 401 || result.status === 403) {
+        // A wrong key does not fix itself: stop and show it, instead of retrying for ever.
+        service.state = 'stopped';
+        service.lastError = result.message;
+        store.set('printingEnabled', false);
+        publishStatus();
+        return { success: false, message: result.message };
+      }
       scheduleRetry(result.message);
       return { success: false, message: result.message };
     }
@@ -303,7 +314,8 @@ async function startPrinting({ manual = false, retry = false } = {}) {
     service.attempt = 0;
     service.lastError = null;
 
-    api.startPolling(getPrinterService(), config.printerMappings, onPrintStatus);
+    // Read again: the mappings may have been saved while the connection test ran.
+    api.startPolling(getPrinterService(), getConfig().printerMappings, onPrintStatus);
     service.state = 'running';
     service.since = new Date().toISOString();
     logger.info(`Printing service started (server ${result.serverVersion || '?'}, pusher ${service.pusher ? 'on' : 'off'}, ${config.printerMappings.length} printer(s))`);
@@ -386,7 +398,8 @@ async function testPrint({ localPrinterName, widthMm, copies, engine, remotePrin
       printerName: localPrinterName,
       widthMm: width,
       copies: Math.max(1, parseInt(copies, 10) || 1),
-      engine: engine || 'auto',
+      // The test ticket only exists as HTML: the mapping's "image" engine cannot print it.
+      engine: 'auto',
     });
   } catch (error) {
     result = { success: false, error: error.message };
@@ -427,7 +440,7 @@ async function checkForUpdates() {
     const latest = result && result.updateInfo ? result.updateInfo.version : null;
     const current = app.getVersion();
     update.checkedAt = new Date().toISOString();
-    if (latest && latest !== current) {
+    if (result && result.isUpdateAvailable) {
       return { success: true, updateAvailable: true, currentVersion: current, latestVersion: latest, message: `Update v${latest} is downloading` };
     }
     return { success: true, updateAvailable: false, currentVersion: current, message: 'You are running the latest version' };
@@ -439,6 +452,9 @@ async function checkForUpdates() {
 
 function installUpdateNow() {
   logger.info(`Installing update v${update.version || '?'}`);
+  // The installer relaunches the app with --updated, not --hidden: remember whether the
+  // window was showing so an overnight update does not pop it onto the POS screen.
+  store.set('relaunchHidden', !(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()));
   stopPrinting();
   app.isQuitting = true;
   setImmediate(() => autoUpdater.quitAndInstall(true, true));
@@ -451,7 +467,8 @@ function scheduleQuietInstall() {
   }
   const quietFor = Date.now() - lastJobFinishedAt;
   const busy = apiService && apiService.isBusy();
-  if (!busy && quietFor >= UPDATE_QUIET_MS) {
+  const windowInUse = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused();
+  if (!busy && !windowInUse && quietFor >= UPDATE_QUIET_MS) {
     quietInstallTimer = null;
     installUpdateNow();
     return;
