@@ -1,0 +1,30 @@
+# Builds the Windows installer and publishes it as a GitHub release, which is where
+# installed apps look for updates (electron-updater, public repo, no token needed).
+#
+# Release: bump "version" in package.json, merge to main, then push the tag v<version>
+# (git tag v1.1.0 && git push origin v1.1.0). The release is created for that tag.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build and publish the installer
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
